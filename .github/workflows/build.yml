@@ -17,10 +17,9 @@ jobs:
       - name: Deploy FFmpeg Engine
         run: |
           mkdir -p assets
-          # 直接下载 Android arm64 专用二进制文件，避开解压工具缺失的问题
           curl -L https://github.com/vzhivov/ffmpeg-android-maker/releases/download/v6.1/ffmpeg-arm64-v8a -o assets/ffmpeg
           chmod +x assets/ffmpeg
-          echo "FFmpeg 引擎已部署到 assets 文件夹"
+          echo "FFmpeg 引擎已部署到 assets"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -36,10 +35,9 @@ jobs:
       - name: Build APK with Flet
         run: |
           pip install flet yt-dlp
-          # 核心修正：
-          # 1. 不再使用 --assets 参数（新版 Flet 默认包含 assets 文件夹）
-          # 2. 加入权限声明，解决安卓 10-13 的文件读写问题
-          flet build apk --permissions READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE
+          # 修正点：使用 --android-permissions 而不是 --permissions
+          # 这样可以传入安卓原生的权限声明
+          flet build apk --android-permissions "android.permission.READ_EXTERNAL_STORAGE,android.permission.WRITE_EXTERNAL_STORAGE,android.permission.MANAGE_EXTERNAL_STORAGE"
 
       - name: Upload APK Result
         uses: actions/upload-artifact@v4
