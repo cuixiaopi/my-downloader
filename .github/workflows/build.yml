@@ -1,0 +1,48 @@
+name: Build Android APK
+on:
+  workflow_dispatch: # 允许手动点击运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Download FFmpeg for Android
+        run: |
+          mkdir -p assets
+          # 自动从官方源下载 Android 专用的 FFmpeg (arm64 架构)
+          curl -L https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-android-arm64-v8a-gpl.tar.xz -o ffmpeg.tar.xz
+          tar -xf ffmpeg.tar.xz
+          # 提取并放入 assets 文件夹
+          find . -name "ffmpeg" -type f -exec cp {} assets/ffmpeg \;
+          chmod +x assets/ffmpeg
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Build APK with Flet
+        run: |
+          pip install flet yt-dlp
+          # 这一步会自动把 assets/ffmpeg 打包进 APK
+          flet build apk --assets assets
+
+      - name: Upload APK Result
+        uses: actions/upload-artifact@v3
+        with:
+          name: my-downloader-app
+          path: build/apk/*.apk
