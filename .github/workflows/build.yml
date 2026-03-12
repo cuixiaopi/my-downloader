@@ -17,8 +17,7 @@ jobs:
       - name: Deploy FFmpeg Engine
         run: |
           mkdir -p assets
-          # 使用移动端优化的直接下载方式
-          # 我们直接下载已经解压好的 ffmpeg 二进制文件（来自信任的构建源）
+          # 直接下载 Android 专用的二进制文件，避免解压报错
           curl -L https://github.com/vzhivov/ffmpeg-android-maker/releases/download/v6.1/ffmpeg-arm64-v8a -o assets/ffmpeg
           chmod +x assets/ffmpeg
           echo "FFmpeg 引擎已就位"
@@ -37,7 +36,8 @@ jobs:
       - name: Build APK with Flet
         run: |
           pip install flet yt-dlp
-          flet build apk --assets assets
+          # 修正后的打包命令，不带多余参数
+          flet build apk
 
       - name: Upload APK Result
         uses: actions/upload-artifact@v4
