@@ -7,12 +7,12 @@ import threading
 
 def main(page: ft.Page):
     page.title = "DRM 视频大师"
-    page.theme_mode = ft.ThemeMode.LIGHT
     page.scroll = ft.ScrollMode.AUTO
     
+    # 界面元素
     url_input = ft.TextField(label="MPD 链接", border_radius=10)
-    key_input = ft.TextField(label="32位 Key (Decryption Key)", border_radius=10)
-    name_input = ft.TextField(label="保存文件名", value="download_video", border_radius=10)
+    key_input = ft.TextField(label="32位 Key", border_radius=10)
+    name_input = ft.TextField(label="保存文件名", value="my_download", border_radius=10)
     log_box = ft.TextField(label="运行日志", multiline=True, read_only=True, min_lines=12, text_size=12)
     pb = ft.ProgressBar(visible=False)
 
@@ -20,23 +20,34 @@ def main(page: ft.Page):
         log_box.value += f"{msg}\n"
         page.update()
 
-    def get_ffmpeg():
-        data_dir = page.pwa_config.path if hasattr(page, 'pwa_config') else os.getcwd()
+    def get_ffmpeg_path():
+        # 获取安卓内部可执行文件的私有路径
+        # 这种写法比 pwa_config 更稳，不容易白屏
+        data_dir = os.environ.get("FLET_APP_DATA", os.getcwd())
         ffmpeg_bin = os.path.join(data_dir, "ffmpeg")
+        
         if not os.path.exists(ffmpeg_bin):
-            src = os.path.join(os.path.dirname(__file__), "assets", "ffmpeg")
-            if os.path.exists(src):
-                shutil.copy(src, ffmpeg_bin)
-                os.chmod(ffmpeg_bin, os.stat(ffmpeg_bin).st_mode | stat.S_IEXEC)
+            try:
+                # 寻找 assets 里的原始文件
+                base_dir = os.path.dirname(__file__)
+                src = os.path.join(base_dir, "assets", "ffmpeg")
+                if os.path.exists(src):
+                    shutil.copy(src, ffmpeg_bin)
+                    os.chmod(ffmpeg_bin, os.stat(ffmpeg_bin).st_mode | stat.S_IEXEC)
+                    logger("✅ 引擎部署成功")
+                else:
+                    logger("❌ 找不到 assets/ffmpeg")
+            except Exception as e:
+                logger(f"❌ 部署失败: {e}")
         return ffmpeg_bin
 
-    def run_download_logic():
-        engine = get_ffmpeg()
+    def download_process():
+        engine = get_ffmpeg_path()
         url = url_input.value.strip()
         key = key_input.value.strip()
         
         if not url or not key:
-            logger("❌ 错误：链接或Key不能为空")
+            logger("❌ 错误：链接或 Key 不能为空")
             return
 
         btn.disabled = True
@@ -44,38 +55,27 @@ def main(page: ft.Page):
         page.update()
 
         try:
-            # 1. 确定输出路径 (手机下载目录)
-            output_dir = "/sdcard/Download"
-            if not os.path.exists(output_dir):
-                output_dir = os.getcwd()
+            # 优先保存在 Download 文件夹
+            save_path = "/sdcard/Download"
+            if not os.path.exists(save_path):
+                save_path = os.environ.get("FLET_APP_STORAGE", os.getcwd())
             
-            final_output = os.path.join(output_dir, f"{name_input.value}.mp4")
-            
-            logger("🚀 第一步：正在抓取并合并流 (yt-dlp)...")
-            # 注意：安卓上直接调用命令行
-            # 我们直接用 FFmpeg 配合 Key 处理 MPD
-            cmd = [
-                engine,
-                "-decryption_key", key,
-                "-i", url,
-                "-c", "copy",
-                "-y", # 覆盖同名文件
-                final_output
-            ]
+            output_file = os.path.join(save_path, f"{name_input.value}.mp4")
+            logger(f"📂 目标：{output_file}")
 
-            # 执行命令
+            # FFmpeg 解密命令
+            cmd = [engine, "-decryption_key", key, "-i", url, "-c", "copy", "-y", output_file]
+            
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            
             for line in process.stdout:
-                if "size=" in line: # 提取进度信息
-                    logger(f"正在处理: {line.strip()}")
-            
+                if "size=" in line or "time=" in line:
+                    logger(f"进度: {line.strip()}")
             process.wait()
 
             if process.returncode == 0:
-                logger(f"✅ 任务完成！文件已保存至：{final_output}")
+                logger(f"✅ 下载成功！请在 Download 文件夹查看")
             else:
-                logger("❌ 任务失败，请检查链接或Key是否正确。")
+                logger(f"❌ 失败，请检查链接或Key。代码: {process.returncode}")
 
         except Exception as ex:
             logger(f"💥 异常: {str(ex)}")
@@ -84,11 +84,16 @@ def main(page: ft.Page):
         pb.visible = False
         page.update()
 
-    def start_click(e):
-        # 开启新线程运行，防止界面卡死
-        threading.Thread(target=run_download_logic, daemon=True).start()
+    def on_click(e):
+        threading.Thread(target=download_process, daemon=True).start()
 
-    btn = ft.ElevatedButton("开始解密并下载", on_click=start_click, icon=ft.icons.DOWNLOAD)
+    btn = ft.ElevatedButton("开始解密并下载", on_click=on_click, icon=ft.icons.DOWNLOAD)
     page.add(ft.Column([url_input, key_input, name_input, ft.Center(btn), pb, log_box]))
 
-ft.app(target=main)
+# 增加全局异常捕获，防止启动白屏不显示错误
+try:
+    ft.app(target=main)
+except Exception as e:
+    import traceback
+    with open("crash_log.txt", "w") as f:
+        f.write(traceback.format_exc())
