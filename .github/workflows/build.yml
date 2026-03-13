@@ -17,10 +17,15 @@ jobs:
       - name: Deploy FFmpeg Engine
         run: |
           mkdir -p assets
-          # 下载 arm64 架构专用 FFmpeg 二进制文件
-          curl -L https://github.com/vzhivov/ffmpeg-android-maker/releases/download/v6.1/ffmpeg-arm64-v8a -o assets/ffmpeg
+          # 1. 使用 -L 强制跟随 GitHub 的重定向，确保下载的是 70MB+ 的真实二进制文件
+          curl -L "https://github.com/vzhivov/ffmpeg-android-maker/releases/download/v6.1/ffmpeg-arm64-v8a" -o assets/ffmpeg
+          
+          # 2. 赋予初始可执行权限
           chmod +x assets/ffmpeg
-          echo "FFmpeg 引擎已部署到 assets"
+          
+          # 3. 检查文件大小：如果文件只有几KB，说明下载成了网页，打包必失败
+          echo "检查下载结果："
+          ls -lh assets/ffmpeg
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -28,17 +33,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
       - name: Build APK with Flet
         run: |
           pip install flet
-          # --- 核心修正 ---
-          # --yes: 自动同意所有提示（解决 EOFError）
-          # --skip-flutter-doctor: 跳过环境检查，提速并减少报错
+          # 4. --yes: 自动回答 Yes，解决你之前的 EOFError
+          # 5. --skip-flutter-doctor: 跳过环境检查，防止卡死并提速
           flet build apk --yes --skip-flutter-doctor
 
       - name: Upload APK Result
