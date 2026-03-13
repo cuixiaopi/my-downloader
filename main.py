@@ -4,97 +4,87 @@ import shutil
 import stat
 import subprocess
 import threading
+import traceback
+import sys
 
 def main(page: ft.Page):
-    page.title = "DRM 下载助手"
-    page.scroll = ft.ScrollMode.AUTO
+    # 1. 基础配置
+    page.title = "DRM 诊断版"
     page.theme_mode = ft.ThemeMode.LIGHT
+    page.scroll = ft.ScrollMode.AUTO
     
-    # UI 控件
-    url_input = ft.TextField(label="MPD 链接", border_radius=10)
-    key_input = ft.TextField(label="32位 Key (Decryption Key)", border_radius=10)
-    log_box = ft.TextField(label="运行日志", multiline=True, read_only=True, min_lines=12, text_size=12)
-    pb = ft.ProgressBar(visible=False)
-
-    def logger(msg):
-        log_box.value += f"{msg}\n"
+    # 2. 准备一个大号的错误显示框
+    error_text = ft.Text(color="red", weight="bold", selectable=True)
+    log_box = ft.TextField(label="运行日志", multiline=True, read_only=True, min_lines=10, text_size=12)
+    
+    def show_crash(err):
+        """强行在屏幕上显示错误"""
+        log_box.value = f"💥 发生致命错误！\n\n{err}"
+        error_text.value = "程序已崩溃，请截图发给 AI 进行分析 👇"
         page.update()
 
-    def get_ffmpeg_path():
-        # 【重点修复】不要用 page.pwa_config.path，改用环境变量获取安卓私有目录
-        # 这样可以彻底解决启动白屏崩溃的问题
-        data_dir = os.environ.get("FLET_APP_DATA", os.getcwd())
-        ffmpeg_bin = os.path.join(data_dir, "ffmpeg")
-        
-        if not os.path.exists(ffmpeg_bin):
-            logger("正在部署引擎...")
-            try:
-                # 定位打包进去的资源文件路径
-                base_path = os.path.dirname(__file__)
-                src = os.path.join(base_path, "assets", "ffmpeg")
-                
-                if os.path.exists(src):
-                    shutil.copy(src, ffmpeg_bin)
-                    os.chmod(ffmpeg_bin, os.stat(ffmpeg_bin).st_mode | stat.S_IEXEC)
-                    logger("✅ 引擎部署成功")
-                else:
-                    logger("❌ 找不到原始资源文件 assets/ffmpeg")
-            except Exception as e:
-                logger(f"❌ 部署失败: {e}")
-        return ffmpeg_bin
+    # 3. 核心业务逻辑包装在 Try 里
+    try:
+        url_input = ft.TextField(label="MPD 链接", border_radius=10)
+        key_input = ft.TextField(label="32位 Key", border_radius=10)
+        pb = ft.ProgressBar(visible=False)
 
-    def download_thread():
-        engine = get_ffmpeg_path()
-        url = url_input.value.strip()
-        key = key_input.value.strip()
-        
-        if not url or not key:
-            logger("⚠️ 提示：请填入链接和Key")
-            return
+        def logger(msg):
+            log_box.value += f"{msg}\n"
+            page.update()
 
-        btn.disabled = True
-        pb.visible = True
-        page.update()
+        def run_task(e):
+            def process():
+                try:
+                    # 路径检测
+                    data_dir = os.environ.get("FLET_APP_DATA", os.getcwd())
+                    ffmpeg_bin = os.path.join(data_dir, "ffmpeg")
+                    
+                    if not os.path.exists(ffmpeg_bin):
+                        logger("正在从 Assets 部署引擎...")
+                        src = os.path.join(os.path.dirname(__file__), "assets", "ffmpeg")
+                        if os.path.exists(src):
+                            shutil.copy(src, ffmpeg_bin)
+                            os.chmod(ffmpeg_bin, os.stat(ffmpeg_bin).st_mode | stat.S_IEXEC)
+                            logger("✅ 引擎就绪")
+                        else:
+                            logger("❌ 找不到 assets/ffmpeg 文件！")
+                            return
 
-        try:
-            # 路径适配：尝试下载到手机下载文件夹
-            save_path = "/sdcard/Download/video_result.mp4"
-            # 如果是安卓11+没权限，会存到 App 的私有存储里
-            if not os.access("/sdcard/Download", os.W_OK):
-                 save_path = os.path.join(os.environ.get("FLET_APP_STORAGE", os.getcwd()), "video.mp4")
-
-            logger(f"🚀 开始处理，目标：{save_path}")
+                    logger("🚀 启动 FFmpeg...")
+                    # 执行最简单的版本检测，看引擎能不能动
+                    res = subprocess.run([ffmpeg_bin, "-version"], capture_output=True, text=True)
+                    logger(f"检测结果: {res.stdout[:50]}...")
+                    
+                except Exception as ex:
+                    logger(f"🔥 运行时出错: {traceback.format_exc()}")
             
-            # 调用 FFmpeg 执行解密下载
-            cmd = [engine, "-decryption_key", key, "-i", url, "-c", "copy", "-y", save_path]
-            
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            for line in process.stdout:
-                if "size=" in line or "time=" in line:
-                    logger(f"进度: {line.strip()}")
-            process.wait()
+            threading.Thread(target=process, daemon=True).start()
 
-            if process.returncode == 0:
-                logger(f"✅ 完成！文件位置: {save_path}")
-            else:
-                logger(f"❌ 失败，退出码: {process.returncode}")
-
-        except Exception as ex:
-            logger(f"💥 异常: {str(ex)}")
+        btn = ft.ElevatedButton("验证环境", on_click=run_task)
         
-        btn.disabled = False
-        pb.visible = False
-        page.update()
+        # 页面装载
+        page.add(
+            ft.Column([
+                ft.Text("DRM 下载器 - 诊断模式", size=20, weight="bold"),
+                error_text,
+                url_input,
+                key_input,
+                btn,
+                pb,
+                log_box
+            ])
+        )
+        logger("系统启动成功，等待操作...")
 
-    def start_click(e):
-        # 使用线程防止界面卡死
-        threading.Thread(target=download_thread, daemon=True).start()
+    except Exception:
+        # 捕获 UI 初始化阶段的错误
+        show_crash(traceback.format_exc())
 
-    btn = ft.ElevatedButton("开始解密并下载", on_click=start_click, icon=ft.icons.DOWNLOAD)
-    page.add(ft.Column([url_input, key_input, ft.Center(btn), pb, log_box]))
-
-# 增加全局捕获
-try:
-    ft.app(target=main)
-except Exception as e:
-    print(f"App Crash: {e}")
+# 启动全方位保护
+if __name__ == "__main__":
+    try:
+        ft.app(target=main)
+    except Exception:
+        # 最后的防线：如果 ft.app 都起不来
+        print(traceback.format_exc())
