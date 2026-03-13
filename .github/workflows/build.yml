@@ -1,51 +1,42 @@
 name: Build Android APK
+
 on:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
 
-      - name: Set up Python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: Download and Extract FFmpeg
+      - name: Download FFmpeg
         run: |
           mkdir -p assets
-          # 1. 下载你提供的安卓专用二进制压缩包
-          curl -L "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2" -o ffmpeg.tar.bz2
-          
-          # 2. 解压并将二进制文件移动到 assets 目录
-          # j 选项处理 bzip2 格式
+          curl -L https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2 -o ffmpeg.tar.bz2
           tar -xjvf ffmpeg.tar.bz2 -C assets/
-          
-          # 3. 确保文件名统一为 ffmpeg 并赋予执行权限
-          # 该压缩包解压后通常就在 assets 目录下
           chmod +x assets/ffmpeg
-          
-          # 4. 关键校验：打印文件信息，确保不是 0 字节
-          echo "✅ FFmpeg 部署成功："
-          ls -lh assets/ffmpeg
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: 17
 
-      - name: Build APK with Flet
+      - name: Install Flet
+        run: pip install flet
+
+      - name: Build APK
         run: |
-          pip install flet
-          # 使用 --yes 自动跳过所有交互式许可确认
-          flet build apk --yes --skip-flutter-doctor
+          flet build apk --yes
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DRM-Downloader-v8a
+          name: drm-downloader
           path: build/apk/*.apk
