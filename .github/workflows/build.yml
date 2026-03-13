@@ -14,10 +14,10 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Deploy FFmpeg Engine
+      - name: Deploy FFmpeg
         run: |
           mkdir -p assets
-          # 下载 arm64 架构专用 FFmpeg (适合绝大多数现代安卓手机)
+          # 换成这个更通用的链接
           curl -L https://github.com/vzhivov/ffmpeg-android-maker/releases/download/v6.1/ffmpeg-arm64-v8a -o assets/ffmpeg
           chmod +x assets/ffmpeg
 
@@ -27,18 +27,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
       - name: Build APK with Flet
         run: |
-          pip install flet yt-dlp
-          # 极简打包命令，避开权限参数错误
+          # 确保安装基础依赖
+          pip install flet
+          # 注意：暂时不装 yt-dlp 试试，看看是不是这个库引起的冲突
+          # 如果你的 main.py 里没用到 yt-dlp，先不装它
           flet build apk
 
-      - name: Upload APK Result
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: my-downloader-app
