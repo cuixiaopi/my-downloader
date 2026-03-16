@@ -35,7 +35,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flet yt-dlp
+          # 将所有依赖直接安装到系统，Flet build 会自动抓取这些包
+          pip install flet yt-dlp certifi requests urllib3 idna charset-normalizer
 
       - name: Download and Extract FFmpeg
         run: |
@@ -48,9 +49,9 @@ jobs:
 
       - name: Build Original APK
         run: |
-          # 动态搜索 Flet 命令路径并执行
+          # 动态搜索 Flet 命令路径
           FLET_CMD=$(find /opt/hostedtoolcache/Python/ -name flet | grep bin/flet | head -n 1)
-          echo "Using Flet command: $FLET_CMD"
+          # 不使用 --requirements 参数，改用默认的包发现机制
           yes | $FLET_CMD build apk --project "MPD Downloader" --org com.myname.mpddownloader
 
       - name: Magic Patch for Android 14
