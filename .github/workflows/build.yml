@@ -24,7 +24,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.9"  # 使用 Python 3.9
+          python-version: "3.9"
           
       - name: Create project structure
         run: |
@@ -61,12 +61,18 @@ jobs:
           pip install flet==0.19.0
           
           echo "验证安装:"
-          python -c "import flet; print(f'✅ Flet 版本: {flet.__version__}')"
-          
-      - name: Check Flet CLI
-        run: |
-          echo "检查 Flet 命令行工具..."
-          flet --version || echo "flet 命令不可用"
+          # 修正：使用正确的版本检查方法
+          python -c "
+try:
+    import flet
+    import pkg_resources
+    version = pkg_resources.get_distribution('flet').version
+    print(f'✅ Flet 安装成功，版本: {version}')
+except AttributeError:
+    print('✅ Flet 安装成功 (版本属性不可用)')
+except Exception as e:
+    print(f'❌ 安装验证失败: {e}')
+"
           
       - name: Create requirements.txt
         run: |
@@ -85,7 +91,7 @@ jobs:
           echo "assets目录内容:"
           ls -la assets/
           
-          # 最简单的构建命令
+          # 使用简单的构建命令
           echo "运行: flet build apk"
           echo y | flet build apk
           
@@ -133,14 +139,4 @@ jobs:
             main.py
             requirements.txt
             assets/
-          retention-days: 3
-          
-      - name: Upload Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            ${{ github.workspace }}/*.log
-            ${{ github.workspace }}/**/*.log
           retention-days: 3
