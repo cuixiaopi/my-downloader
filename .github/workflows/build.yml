@@ -11,10 +11,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4    # 升级到 v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # 升级到 v5
         with:
           python-version: '3.11'
 
@@ -26,11 +26,11 @@ jobs:
       - name: Download and Extract FFmpeg
         run: |
           mkdir -p assets
-          # 1. 使用你提供的正确链接下载 ffmpeg 压缩包
+          # 1. 下载 ffmpeg 压缩包
           wget https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-full.tar.bz2
-          # 2. 解压缩文件 (会解压出一个名为 ffmpeg 的文件)
+          # 2. 解压缩文件
           tar -xjf arm64-v8a-full.tar.bz2
-          # 3. 把解压出来的 ffmpeg 移动到 Flet 会打包的 assets 文件夹
+          # 3. 移动到 assets 文件夹
           mv ffmpeg assets/ffmpeg
           # 4. 赋予可执行权限
           chmod +x assets/ffmpeg
@@ -38,12 +38,13 @@ jobs:
           rm arm64-v8a-full.tar.bz2
 
       - name: Build APK
-        # ⚠️ 极其重要：--target-sdk 28 才能绕过安卓 14 限制，允许执行 ffmpeg 二进制文件
+        # ⚠️ 极其重要：--target-sdk 28 才能绕过安卓 14 限制
         run: |
           flet build apk --project "MPD Downloader" --org com.myname.mpddownloader --target-sdk 28
 
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4   # 升级到 v4，解决报错的核心！
         with:
           name: MPD-Downloader-APK
-          path: build/apk/**/*.apk
+          # v4 版本对路径匹配更严格，直接写文件夹目录即可
+          path: build/apk/
