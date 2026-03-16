@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flet yt-dlp certifi
+          pip install flet yt-dlp
 
       - name: Download and Extract FFmpeg
         run: |
@@ -48,8 +48,10 @@ jobs:
 
       - name: Build Original APK
         run: |
-          # 🌟 使用 python -m 调用 flet，绝对不会找不到命令
-          yes | python -m flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
+          # 动态搜索 Flet 命令路径并执行
+          FLET_CMD=$(find /opt/hostedtoolcache/Python/ -name flet | grep bin/flet | head -n 1)
+          echo "Using Flet command: $FLET_CMD"
+          yes | $FLET_CMD build apk --project "MPD Downloader" --org com.myname.mpddownloader
 
       - name: Magic Patch for Android 14
         run: |
