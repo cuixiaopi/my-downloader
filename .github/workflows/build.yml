@@ -23,17 +23,10 @@ jobs:
         with:
           python-version: "3.9"
           
-      - name: Create requirements.txt
-        run: |
-          echo "flet" > requirements.txt
-          echo "requirements.txt 内容:"
-          cat requirements.txt
-          
       - name: Create assets directory
         run: |
           mkdir -p assets
-          echo "assets目录已创建"
-          ls -la
+          echo "✅ assets目录已创建"
           
       - name: Download FFmpeg
         run: |
@@ -42,7 +35,7 @@ jobs:
           echo "解压FFmpeg..."
           tar -xjf ffmpeg.tar.bz2 -C assets/
           chmod +x assets/ffmpeg
-          echo "FFmpeg信息:"
+          echo "✅ FFmpeg信息:"
           ls -lh assets/ffmpeg
           file assets/ffmpeg
           
@@ -54,59 +47,54 @@ jobs:
           
       - name: Install Dependencies
         run: |
-          pip install --upgrade pip
+          echo "安装Flet..."
           pip install flet
+          echo "Flet版本:"
           flet --version
           
-      - name: Build APK
+      - name: Check Flet commands
+        run: |
+          echo "查看Flet支持的build参数:"
+          flet build apk --help || echo "无法获取帮助"
+          
+      - name: Simple Build APK
         id: build
         run: |
-          echo "开始构建APK..."
+          echo "使用简单构建命令..."
           
-          # 使用非交互式构建
-          echo y | flet build apk \
-            --android-package-name com.drm.debug.downloader \
-            --android-app-name "DRM Debug Master" \
-            --android-version 1.0 \
-            --android-version-code 1 \
-            --android-permissions "android.permission.MANAGE_EXTERNAL_STORAGE" \
-            --android-permissions "android.permission.WRITE_EXTERNAL_STORAGE" \
-            --android-permissions "android.permission.READ_EXTERNAL_STORAGE" \
-            --android-permissions "android.permission.INTERNET" \
-            --android-permissions "android.permission.ACCESS_NETWORK_STATE" \
-            --verbose
+          # 先查看目录结构
+          echo "当前目录结构:"
+          find . -type f -name "*.py" | head -10
           
-          echo "构建完成"
-          echo "检查build目录:"
-          ls -la build/ || echo "build目录不存在"
-          ls -la build/apk/ 2>/dev/null || echo "apk目录不存在"
+          # 使用最简单的构建命令
+          echo y | flet build apk
+          
+          echo "✅ 构建完成"
           
       - name: List APK files
         if: success()
         run: |
           echo "查找APK文件:"
-          find . -name "*.apk" -type f 2>/dev/null | head -20
-          echo "build目录结构:"
-          find build -type f 2>/dev/null || echo "无build目录"
+          find . -name "*.apk" -type f 2>/dev/null || echo "未找到APK"
+          echo "检查build目录:"
+          ls -la build/ 2>/dev/null || echo "build目录不存在"
           
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: drm-debug-apk
+          name: drm-apk
           path: |
             build/apk/*.apk
             *.apk
           retention-days: 7
           
-      - name: Upload debug files
+      - name: Upload source files
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-files
+          name: source-code
           path: |
-            assets/ffmpeg
             main.py
-            requirements.txt
-            ffmpeg.tar.bz2
+            assets/
           retention-days: 3
