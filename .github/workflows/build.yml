@@ -11,10 +11,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4    # 升级到 v4
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v5 # 升级到 v5
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -37,14 +37,39 @@ jobs:
           # 清理垃圾包
           rm arm64-v8a-full.tar.bz2
 
-      - name: Build APK
-        # ⚠️ 极其重要：--target-sdk 28 才能绕过安卓 14 限制
+      - name: Build Original APK
+        # 正常打包，不带出错的参数
         run: |
-          flet build apk --project "MPD Downloader" --org com.myname.mpddownloader --target-sdk 28
+          flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4   # 升级到 v4，解决报错的核心！
+      - name: Magic Patch for Android 14 (降级 Target SDK)
+        # 这段脚本将全自动反编译APK、修改安卓版本限制，并重新打包签名！
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apktool apksigner zipalign
+          
+          # 找到刚刚打包出来的 APK
+          mv build/apk/*.apk original.apk
+          
+          # 1. 反编译 APK
+          apktool d original.apk -o decoded_apk
+          
+          # 2. 暴力修改 targetSdkVersion 为 28 (绕过安卓14的二进制执行限制)
+          sed -i "s/targetSdkVersion: .*/targetSdkVersion: '28'/g" decoded_apk/apktool.yml
+          
+          # 3. 重新编译
+          apktool b decoded_apk -o unsigned_patched.apk
+          
+          # 4. 字节对齐
+          zipalign -v -p 4 unsigned_patched.apk patched.apk
+          
+          # 5. 生成临时签名证书并签名
+          keytool -genkeypair -v -keystore temp.keystore -alias temp -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=MPD,O=Downloader,C=CN"
+          apksigner sign --ks temp.keystore --ks-pass pass:123456 patched.apk
+
+      - name: Upload Final APK
+        uses: actions/upload-artifact@v4
         with:
-          name: MPD-Downloader-APK
-          # v4 版本对路径匹配更严格，直接写文件夹目录即可
-          path: build/apk/
+          name: MPD-Downloader-Android14-Compatible
+          # 直接上传我们破解重签后的 APK
+          path: patched.apk
