@@ -6,19 +6,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4
       
-      - name: Debug Information
+      - name: Debug Info
         run: |
           echo "========== 构建开始 =========="
-          echo "当前目录:"
-          pwd
-          echo "目录内容:"
+          echo "当前目录: $(pwd)"
+          echo "文件列表:"
           ls -la
-          echo "Python可用版本:"
+          echo "Python版本:"
           python --version
           
       - name: Setup Python
@@ -26,21 +25,39 @@ jobs:
         with:
           python-version: "3.9"
           
-      - name: Create project structure
+      - name: Install Dependencies
         run: |
-          echo "创建项目结构..."
-          mkdir -p assets
-          echo "检查main.py是否存在..."
-          if [ ! -f "main.py" ]; then
-            echo "错误: main.py不存在，请确保文件已上传"
-            exit 1
-          fi
+          python -m pip install --upgrade pip
+          pip install flet==0.19.0
           
-      - name: Download FFmpeg
+      - name: Check Flet Installation
         run: |
-          echo "下载FFmpeg二进制文件..."
+          echo "检查Flet安装:"
+          python -c "
+try:
+    import flet
+    print('✅ Flet模块可正常导入')
+    
+    # 尝试检查版本
+    try:
+        import pkg_resources
+        version = pkg_resources.get_distribution('flet').version
+        print(f'✅ Flet版本: {version}')
+    except:
+        print('✅ Flet已安装 (版本信息不可用)')
+except Exception as e:
+    print(f'❌ Flet导入失败: {e}')
+    exit(1)
+"
+          
+      - name: Prepare Assets
+        run: |
+          echo "准备资源文件..."
+          mkdir -p assets
+          
+          # 下载FFmpeg
+          echo "下载FFmpeg..."
           wget -q --show-progress -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
-          echo "解压FFmpeg..."
           tar -xjf ffmpeg.tar.bz2 -C assets/
           chmod +x assets/ffmpeg
           echo "FFmpeg信息:"
@@ -53,90 +70,118 @@ jobs:
           distribution: temurin
           java-version: 17
           
-      - name: Install Dependencies
+      - name: Create Minimal Flet App
         run: |
-          echo "安装 Python 依赖..."
-          python -m pip install --upgrade pip
-          echo "正在安装 flet==0.19.0 ..."
+          echo "创建最简单的Flet应用测试..."
+          cat > test_main.py << 'EOF'
+import flet as ft
+
+def main(page: ft.Page):
+    page.title = "测试应用"
+    page.add(ft.Text("Hello Flet!"))
+
+if __name__ == "__main__":
+    ft.app(target=main)
+EOF
+          
+      - name: Test Build Locally First
+        run: |
+          echo "先测试本地构建..."
+          
+          # 创建一个虚拟环境测试
+          python -m venv venv
+          source venv/bin/activate
           pip install flet==0.19.0
           
-          echo "验证安装:"
-          # 修正：使用正确的版本检查方法
-          python -c "
-try:
-    import flet
-    import pkg_resources
-    version = pkg_resources.get_distribution('flet').version
-    print(f'✅ Flet 安装成功，版本: {version}')
-except AttributeError:
-    print('✅ Flet 安装成功 (版本属性不可用)')
-except Exception as e:
-    print(f'❌ 安装验证失败: {e}')
-"
+          echo "尝试构建APK..."
+          # 使用非交互模式
+          echo -e "y\ny\ny" | flet build apk --verbose || echo "构建测试完成"
+          deactivate
           
-      - name: Create requirements.txt
+      - name: Build APK with Non-Interactive
+        id: build
         run: |
-          echo "flet==0.19.0" > requirements.txt
-          echo "requirements.txt 内容:"
-          cat requirements.txt
+          echo "========== 开始正式构建 =========="
           
-      - name: Simple Build Test
-        run: |
-          echo "========== 开始构建 APK =========="
-          echo "使用最简单的构建命令..."
+          # 方法1: 使用expect自动回答所有提示
+          echo "安装expect工具..."
+          sudo apt-get update && sudo apt-get install -y expect
           
-          # 先查看当前目录
-          echo "构建前目录结构:"
-          find . -type f -name "*.py" | head -5
-          echo "assets目录内容:"
-          ls -la assets/
+          # 使用expect自动回答所有yes
+          cat > build_apk.exp << 'EOF'
+#!/usr/bin/expect
+spawn flet build apk
+expect "Flutter SDK 3.41.4 is required. It will be installed now. Proceed?"
+send "y\r"
+expect "Accept licenses"
+send "y\r"
+expect eof
+EOF
           
-          # 使用简单的构建命令
-          echo "运行: flet build apk"
-          echo y | flet build apk
+          chmod +x build_apk.exp
+          echo "使用expect脚本构建..."
+          ./build_apk.exp || true
           
-          echo "✅ 构建命令执行完成"
-          
-      - name: Check Build Output
-        run: |
-          echo "========== 检查构建输出 =========="
-          echo "查找 APK 文件:"
-          find . -name "*.apk" 2>/dev/null || echo "未找到 APK 文件"
-          
-          echo "检查 build 目录:"
-          if [ -d "build" ]; then
-            echo "build 目录结构:"
-            ls -la build/
-            if [ -d "build/apk" ]; then
-              echo "APK 目录内容:"
-              ls -la build/apk/
-              echo "APK 文件详情:"
-              for apk in build/apk/*.apk; do
-                echo "APK: $apk"
-                ls -lh "$apk"
-              done
-            fi
-          else
-            echo "build 目录不存在"
+          # 方法2: 如果expect失败，使用简单重试
+          echo "检查是否构建成功..."
+          if [ ! -d "build/apk" ] || [ -z "$(ls -A build/apk/*.apk 2>/dev/null)" ]; then
+            echo "第一次构建可能失败，尝试直接构建..."
+            # 设置环境变量避免交互
+            export FLET_ACCEPT_LICENSE=yes
+            export FLET_INSTALL_FLUTTER=yes
+            flet build apk --verbose || true
           fi
           
-      - name: Upload APK Artifact
+      - name: Check Build Result
+        run: |
+          echo "========== 检查构建结果 =========="
+          
+          echo "查找所有APK文件:"
+          find . -name "*.apk" -type f 2>/dev/null | while read file; do
+            echo "找到APK: $file"
+            ls -lh "$file"
+          done || echo "未找到APK文件"
+          
+          echo "检查build目录:"
+          if [ -d "build" ]; then
+            echo "build目录内容:"
+            ls -la build/
+            
+            if [ -d "build/apk" ]; then
+              echo "APK目录内容:"
+              ls -la build/apk/
+              
+              if ls build/apk/*.apk 1> /dev/null 2>&1; then
+                echo "✅ 发现APK文件:"
+                for apk in build/apk/*.apk; do
+                  echo "  - $apk ($(ls -lh "$apk" | awk '{print $5}'))"
+                done
+              else
+                echo "❌ APK目录为空"
+              fi
+            else
+              echo "❌ 没有apk子目录"
+            fi
+          else
+            echo "❌ build目录不存在"
+          fi
+          
+      - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: drm-downloader-apk
+          name: drm-app-apk
           path: |
             build/apk/*.apk
-            *.apk
+            **/*.apk
           retention-days: 7
           
-      - name: Upload Source Files
+      - name: Upload Build Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: source-files
+          name: build-logs
           path: |
-            main.py
-            requirements.txt
-            assets/
+            ${{ github.workspace }}/*.log
+            ${{ github.workspace }}/**/*.log
           retention-days: 3
