@@ -31,12 +31,30 @@ jobs:
       - name: Install Flet
         run: pip install flet
 
+      - name: Create Android manifest permissions
+        run: |
+          cat > android_manifest_extras.xml << EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <!-- Android 10+ 需要此权限访问外部存储 -->
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
+                  android:maxSdkVersion="28" />
+              <!-- Android 11+ 管理所有文件权限 -->
+              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+              <!-- 允许安装未知应用 -->
+              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+              <!-- 网络权限 -->
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+          </manifest>
+          EOF
+
       - name: Build APK
         run: |
-          flet build apk --yes
+          flet build apk --yes --android-manifest-extra android_manifest_extras.xml
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: drm-downloader
-          path: build/apk/*.apk 
+          name: drm-downloader-android14
+          path: build/apk/*.apk
