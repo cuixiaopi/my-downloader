@@ -18,9 +18,11 @@ jobs:
       - name: Download FFmpeg
         run: |
           mkdir -p assets
-          curl -L https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2 -o ffmpeg.tar.bz2
-          tar -xjvf ffmpeg.tar.bz2 -C assets/
+          wget -q https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2 -O ffmpeg.tar.bz2
+          tar -xjf ffmpeg.tar.bz2 -C assets/
           chmod +x assets/ffmpeg
+          # 检查文件是否存在
+          ls -la assets/
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -30,15 +32,12 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install flet
-          pip install pyjnius
-          pip install android
+          pip install flet==0.82.2
+          # 不安装 android 包，它在 Flet 环境中不需要
 
       - name: Create requirements.txt
         run: |
-          echo "flet>=0.20.0" > requirements.txt
-          echo "pyjnius" >> requirements.txt
-          echo "android" >> requirements.txt
+          echo "flet>=0.82.2" > requirements.txt
 
       - name: Create AndroidManifest.xml
         run: |
@@ -52,9 +51,11 @@ jobs:
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               
-              <!-- Android 10+ 需要这个权限 -->
+              <!-- 针对 Android 10+ 的权限 -->
               <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+                  tools:ignore="ScopedStorage" 
                   android:minSdkVersion="30" />
               
               <application
@@ -62,7 +63,8 @@ jobs:
                   android:icon="@mipmap/ic_launcher"
                   android:label="DRM下载大师"
                   android:theme="@style/AppTheme"
-                  android:requestLegacyExternalStorage="true">
+                  android:requestLegacyExternalStorage="true"
+                  android:usesCleartextTraffic="true">
                   
                   <activity
                       android:name=".MainActivity"
@@ -83,6 +85,7 @@ jobs:
                       </intent-filter>
                   </activity>
                   
+                  <!-- 文件提供者配置 -->
                   <provider
                       android:name="androidx.core.content.FileProvider"
                       android:authorities="${applicationId}.fileprovider"
@@ -95,4 +98,52 @@ jobs:
                   </provider>
               </application>
               
-              <uses-feature android:name
+              <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+          </manifest>
+          EOF
+
+      - name: Create file_paths.xml
+        run: |
+          mkdir -p res/xml
+          cat > res/xml/file_paths.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <external-path name="external" path="." />
+              <external-files-path name="external_files" path="." />
+              <external-cache-path name="external_cache" path="." />
+              <files-path name="files" path="." />
+              <cache-path name="cache" path="." />
+              <root-path name="root" path="." />
+          </paths>
+          EOF
+
+      - name: Create main.py
+        run: |
+          # 这里使用上面的 Python 代码，保存为 main.py
+          cat > main.py << 'EOF'
+          # 这里粘贴上面的 Python 代码
+          EOF
+          # 复制上面的 Python 代码到 main.py
+
+      - name: Build APK
+        run: |
+          flet build apk \
+            --build-version=3 \
+            --build-number=3 \
+            --android-package="com.example.drmdownloader" \
+            --android-app-name="DRM下载大师" \
+            --android-manifest=android_manifest.xml \
+            --resource-dir=res \
+            --verbose \
+            --yes
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: drm-downloader-apk
+          path: build/apk/*.apk
+          
+      - name: List build files
+        run: |
+          ls -la build/
+          ls -la build/apk/
