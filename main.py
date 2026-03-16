@@ -5,6 +5,25 @@ import subprocess
 import threading
 import traceback
 
+# 检查是否是 Android 设备
+def is_android():
+    return os.environ.get("FLET_PLATFORM") == "android"
+
+# 请求存储权限
+def request_storage_permission(page: ft.Page):
+    if not is_android():
+        return True
+
+    # 尝试请求权限
+    permission = "android.permission.WRITE_EXTERNAL_STORAGE"
+    result = page.permissions.request(permission)
+    if result:
+        log("✅ 已获得存储权限")
+        return True
+    else:
+        log("❌ 未获得存储权限，请手动在设置中开启")
+        return False
+
 def main(page: ft.Page):
     page.title = "DRM 下载大师"
     page.theme_mode = ft.ThemeMode.LIGHT
@@ -27,24 +46,27 @@ def main(page: ft.Page):
         page.update()
 
     def run(e):
-
         btn.disabled = True
         pb.visible = True
         page.update()
 
         def task():
             try:
-
                 log("🚀 初始化引擎...")
+
+                # 检查并请求权限
+                if is_android() and not request_storage_permission(page):
+                    log("⚠️ 无法继续：缺少存储权限")
+                    return
 
                 app_dir = os.getcwd()
                 ffmpeg_src = os.path.join(app_dir, "assets", "ffmpeg")
 
+                # 在 Android 上，Flet 会自动将 assets 复制到 app_data 目录
                 data_dir = os.environ.get("FLET_APP_DATA", app_dir)
+                ffmpeg_bin = os.path.join(data_dir, "mpeg")
 
-                ffmpeg_bin = os.path.join(data_dir, "ffmpeg")
-
-                shutil.copy(ffmpeg_src, ffmpeg_bin)
+              ff  shutil.copy(ffmpeg_src, ffmpeg_bin)
                 os.chmod(ffmpeg_bin, 0o755)
 
                 log("✅ FFmpeg 已部署")
@@ -86,8 +108,9 @@ def main(page: ft.Page):
                 else:
                     log(f"❌ 失败，返回码 {p.returncode}")
 
-            except Exception:
+            except Exception as ex:
                 log("💥 崩溃：")
+                log(str(ex))
                 log(traceback.format_exc())
 
             finally:
@@ -109,5 +132,4 @@ def main(page: ft.Page):
         ])
     )
 
-
-ft.app(target=main)  
+ft.app(target=main)
