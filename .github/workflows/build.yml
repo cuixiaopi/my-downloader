@@ -18,6 +18,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      # 新增：配置 Java 17 环境，确保 Flet 打包和重签名不会报错
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -26,44 +33,38 @@ jobs:
       - name: Download and Extract FFmpeg
         run: |
           mkdir -p assets
-          # 1. 下载 ffmpeg 压缩包
           wget https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-full.tar.bz2
-          # 2. 解压缩文件
           tar -xjf arm64-v8a-full.tar.bz2
-          # 3. 移动到 assets 文件夹
           mv ffmpeg assets/ffmpeg
-          # 4. 赋予可执行权限
           chmod +x assets/ffmpeg
-          # 清理垃圾包
           rm arm64-v8a-full.tar.bz2
 
       - name: Build Original APK
-        # 正常打包，不带出错的参数
+        # ⚠️ 核心修复：使用 "yes |" 管道符，全自动回答 Flet 的 [y/n] 安装提示！
         run: |
-          flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
+          yes | flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
 
-      - name: Magic Patch for Android 14 (降级 Target SDK)
-        # 这段脚本将全自动反编译APK、修改安卓版本限制，并重新打包签名！
+      - name: Magic Patch for Android 14 (降级 Target SDK 并重签)
         run: |
           sudo apt-get update
           sudo apt-get install -y apktool apksigner zipalign
           
-          # 找到刚刚打包出来的 APK
+          # 找到打包出来的 APK
           mv build/apk/*.apk original.apk
           
-          # 1. 反编译 APK
+          # 1. 反编译
           apktool d original.apk -o decoded_apk
           
-          # 2. 暴力修改 targetSdkVersion 为 28 (绕过安卓14的二进制执行限制)
+          # 2. 修改 targetSdkVersion 绕过安卓 14 权限限制
           sed -i "s/targetSdkVersion: .*/targetSdkVersion: '28'/g" decoded_apk/apktool.yml
           
-          # 3. 重新编译
+          # 3. 重新打包
           apktool b decoded_apk -o unsigned_patched.apk
           
           # 4. 字节对齐
           zipalign -v -p 4 unsigned_patched.apk patched.apk
           
-          # 5. 生成临时签名证书并签名
+          # 5. 自动生成签名并签名
           keytool -genkeypair -v -keystore temp.keystore -alias temp -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=MPD,O=Downloader,C=CN"
           apksigner sign --ks temp.keystore --ks-pass pass:123456 patched.apk
 
@@ -71,5 +72,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MPD-Downloader-Android14-Compatible
-          # 直接上传我们破解重签后的 APK
           path: patched.apk
