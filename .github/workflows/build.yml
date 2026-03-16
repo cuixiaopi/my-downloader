@@ -1,68 +1,30 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:    # 允许手动触发
+  push:                 # 推送到main分支时也触发
+    branches:
+      - main
 
 jobs:
-  build:
+  build-android-apk:    # 作业名称
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       
-      - name: Debug Info
-        run: |
-          echo "========== 构建开始 =========="
-          echo "当前目录: $(pwd)"
-          echo "文件列表:"
-          ls -la
-          echo "Python版本:"
-          python --version
-          
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.9"
           
-      - name: Install Dependencies
+      - name: Download FFmpeg
         run: |
-          python -m pip install --upgrade pip
-          pip install flet==0.19.0
-          
-      - name: Check Flet Installation
-        run: |
-          echo "检查Flet安装:"
-          python -c "
-try:
-    import flet
-    print('✅ Flet模块可正常导入')
-    
-    # 尝试检查版本
-    try:
-        import pkg_resources
-        version = pkg_resources.get_distribution('flet').version
-        print(f'✅ Flet版本: {version}')
-    except:
-        print('✅ Flet已安装 (版本信息不可用)')
-except Exception as e:
-    print(f'❌ Flet导入失败: {e}')
-    exit(1)
-"
-          
-      - name: Prepare Assets
-        run: |
-          echo "准备资源文件..."
           mkdir -p assets
-          
-          # 下载FFmpeg
-          echo "下载FFmpeg..."
-          wget -q --show-progress -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
+          wget -q -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
           tar -xjf ffmpeg.tar.bz2 -C assets/
           chmod +x assets/ffmpeg
-          echo "FFmpeg信息:"
-          ls -lh assets/ffmpeg
-          file assets/ffmpeg
           
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -70,118 +32,18 @@ except Exception as e:
           distribution: temurin
           java-version: 17
           
-      - name: Create Minimal Flet App
+      - name: Install Flet
         run: |
-          echo "创建最简单的Flet应用测试..."
-          cat > test_main.py << 'EOF'
-import flet as ft
-
-def main(page: ft.Page):
-    page.title = "测试应用"
-    page.add(ft.Text("Hello Flet!"))
-
-if __name__ == "__main__":
-    ft.app(target=main)
-EOF
-          
-      - name: Test Build Locally First
-        run: |
-          echo "先测试本地构建..."
-          
-          # 创建一个虚拟环境测试
-          python -m venv venv
-          source venv/bin/activate
           pip install flet==0.19.0
           
-          echo "尝试构建APK..."
-          # 使用非交互模式
-          echo -e "y\ny\ny" | flet build apk --verbose || echo "构建测试完成"
-          deactivate
-          
-      - name: Build APK with Non-Interactive
-        id: build
+      - name: Build APK
         run: |
-          echo "========== 开始正式构建 =========="
-          
-          # 方法1: 使用expect自动回答所有提示
-          echo "安装expect工具..."
-          sudo apt-get update && sudo apt-get install -y expect
-          
-          # 使用expect自动回答所有yes
-          cat > build_apk.exp << 'EOF'
-#!/usr/bin/expect
-spawn flet build apk
-expect "Flutter SDK 3.41.4 is required. It will be installed now. Proceed?"
-send "y\r"
-expect "Accept licenses"
-send "y\r"
-expect eof
-EOF
-          
-          chmod +x build_apk.exp
-          echo "使用expect脚本构建..."
-          ./build_apk.exp || true
-          
-          # 方法2: 如果expect失败，使用简单重试
-          echo "检查是否构建成功..."
-          if [ ! -d "build/apk" ] || [ -z "$(ls -A build/apk/*.apk 2>/dev/null)" ]; then
-            echo "第一次构建可能失败，尝试直接构建..."
-            # 设置环境变量避免交互
-            export FLET_ACCEPT_LICENSE=yes
-            export FLET_INSTALL_FLUTTER=yes
-            flet build apk --verbose || true
-          fi
-          
-      - name: Check Build Result
-        run: |
-          echo "========== 检查构建结果 =========="
-          
-          echo "查找所有APK文件:"
-          find . -name "*.apk" -type f 2>/dev/null | while read file; do
-            echo "找到APK: $file"
-            ls -lh "$file"
-          done || echo "未找到APK文件"
-          
-          echo "检查build目录:"
-          if [ -d "build" ]; then
-            echo "build目录内容:"
-            ls -la build/
-            
-            if [ -d "build/apk" ]; then
-              echo "APK目录内容:"
-              ls -la build/apk/
-              
-              if ls build/apk/*.apk 1> /dev/null 2>&1; then
-                echo "✅ 发现APK文件:"
-                for apk in build/apk/*.apk; do
-                  echo "  - $apk ($(ls -lh "$apk" | awk '{print $5}'))"
-                done
-              else
-                echo "❌ APK目录为空"
-              fi
-            else
-              echo "❌ 没有apk子目录"
-            fi
-          else
-            echo "❌ build目录不存在"
-          fi
+          echo "开始构建APK..."
+          # 使用非交互模式构建
+          yes | flet build apk
           
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: drm-app-apk
-          path: |
-            build/apk/*.apk
-            **/*.apk
-          retention-days: 7
-          
-      - name: Upload Build Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            ${{ github.workspace }}/*.log
-            ${{ github.workspace }}/**/*.log
-          retention-days: 3
+          name: drm-downloader-apk
+          path: build/apk/*.apk
