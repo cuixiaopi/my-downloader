@@ -1,10 +1,16 @@
+import sys
+import os
+# 强制加载打包环境中的 site-packages 目录，解决 ModuleNotFoundError: No module named 'flet'
+app_dir = os.path.dirname(os.path.abspath(__file__))
+site_packages = os.path.join(app_dir, "lib", "python3.11", "site-packages")
+if os.path.exists(site_packages):
+    sys.path.append(site_packages)
+
 import flet as ft
 import yt_dlp
 import subprocess
-import os
 import shutil
 import stat
-import glob
 
 def main(page: ft.Page):
     page.title = "MPD 下载解密器"
@@ -27,32 +33,34 @@ def main(page: ft.Page):
         page.update()
 
         try:
-            # ================= 1. 准备目录 =================
-            app_dir = os.getcwd() 
-            assets_ffmpeg = os.path.join(app_dir, "assets", "ffmpeg")
+            # ================= 1. 路径初始化 =================
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            assets_ffmpeg = os.path.join(base_dir, "assets", "ffmpeg")
             
-            # 找到安卓内部的安全缓存目录 (在这个目录下才能执行二进制文件)
-            cache_dir = os.environ.get("TMPDIR", os.path.join(app_dir, "tmp"))
-            os.makedirs(cache_dir, exist_ok=True)
+            # 使用 Android 的私有缓存目录，这是唯一有写权限且允许执行二进制文件的地方
+            cache_dir = os.environ.get("TMPDIR", "/data/local/tmp")
             ffmpeg_path = os.path.join(cache_dir, "ffmpeg")
-
-            # 视频下载目录 (放在缓存目录避免安卓权限弹窗)
-            download_dir = cache_dir 
+            
+            # 下载目标目录：App 的私有数据目录
+            download_dir = os.path.join(base_dir, "downloads")
+            os.makedirs(download_dir, exist_ok=True)
+            
             out_template = os.path.join(download_dir, "tbw_31_final.%(ext)s")
             final_out = os.path.join(download_dir, "final_video.mp4")
 
-            # ================= 2. 释放 FFmpeg =================
-            log("-> 准备 FFmpeg 解密环境...")
-            if os.path.exists(assets_ffmpeg):
-                shutil.copy(assets_ffmpeg, ffmpeg_path)
-                # 满权限赋权：chmod 777
-                os.chmod(ffmpeg_path, 0o777) 
-            else:
-                log(f"❌ 严重错误：找不到打包的 FFmpeg")
-                return
+            # ================= 2. 释放 FFmpeg 到可执行区 =================
+            log("-> 准备 FFmpeg 环境...")
+            if not os.path.exists(ffmpeg_path):
+                if os.path.exists(assets_ffmpeg):
+                    shutil.copy(assets_ffmpeg, ffmpeg_path)
+                    os.chmod(ffmpeg_path, 0o777)
+                    log("-> FFmpeg 释放并授权成功")
+                else:
+                    log(f"❌ 错误：在 {assets_ffmpeg} 找不到 FFmpeg 文件")
+                    return
 
             # ================= 3. yt-dlp 下载 =================
-            log("-> 启动 yt-dlp 下载 (请耐心等待)...")
+            log("-> 启动 yt-dlp 下载...")
             ydl_opts = {
                 'allow_unplayable_formats': True,
                 'video_password': f"8045e66376cb4efdae49a6315846f1cb:{key_input.value}",
@@ -63,11 +71,9 @@ def main(page: ft.Page):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url_input.value])
 
-            log("✅ 下载完成！")
-            log("-> 启动 FFmpeg 进行解密和合并...")
+            log("✅ 下载完成，准备解密...")
 
             # ================= 4. FFmpeg 解密 =================
-            # 自动寻找下载下来的分离的音视频文件
             video_in = os.path.join(download_dir, "tbw_31_final.ftbw31_hd_01_6000k_v.mp4")
             audio_in = os.path.join(download_dir, "tbw_31_final.ftbw31_hd_01_6000k_a.m4a")
 
@@ -84,9 +90,9 @@ def main(page: ft.Page):
             process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             
             if process.returncode == 0:
-                log(f"🎉 完美成功！\n\n为了绕过安卓14权限限制，视频已保存在App专属私有目录:\n{final_out}\n\n(你可以用 MT管理器 访问上述路径提取视频)")
+                log(f"🎉 成功！\n视频已保存在:\n{final_out}")
             else:
-                log(f"❌ FFmpeg 报错:\n{process.stderr}")
+                log(f"❌ FFmpeg 报错: {process.stderr}")
 
         except Exception as ex:
             log(f"❌ 发生异常: {str(ex)}")
