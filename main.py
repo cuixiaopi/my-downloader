@@ -4,16 +4,18 @@ import subprocess
 import os
 import shutil
 import stat
+import glob
 
 def main(page: ft.Page):
-    page.title = "简单 MPD 下载器"
+    page.title = "MPD 下载解密器"
     page.padding = 20
     page.scroll = "auto"
+    page.theme_mode = ft.ThemeMode.DARK
 
-    # UI 元素
+    # UI 界面元素
     url_input = ft.TextField(label="MPD 链接", value="https://cdn-dl.webstream.ne.jp/cdn-dl27/dl/giga/tbw31/tbw31_hd_01_6000k.mpd")
     key_input = ft.TextField(label="解密 Key", value="74cf87a7594b3ac7e5a4e6fab7f53796")
-    log_text = ft.Text("等待操作...", size=12)
+    log_text = ft.Text("状态：等待开始...", size=13, color=ft.colors.GREEN_400)
     
     def log(msg):
         log_text.value += f"\n{msg}"
@@ -21,38 +23,36 @@ def main(page: ft.Page):
 
     def run_task(e):
         btn_start.disabled = True
-        log_text.value = "开始任务..."
+        log_text.value = "=== 任务开始 ==="
         page.update()
 
         try:
-            # 1. 配置路径 (安卓内部存储的缓存目录)
-            cache_dir = os.environ.get("TMPDIR", "/data/local/tmp")
-            ffmpeg_path = os.path.join(cache_dir, "ffmpeg")
+            # ================= 1. 准备目录 =================
+            app_dir = os.getcwd() 
+            assets_ffmpeg = os.path.join(app_dir, "assets", "ffmpeg")
             
-            # 视频输出路径设为安卓的公共下载目录 (Downloads)
-            # 在 Flet 安卓环境中，通常可以写到 /storage/emulated/0/Download
-            download_dir = "/storage/emulated/0/Download"
-            if not os.path.exists(download_dir):
-                download_dir = cache_dir # 如果找不到公共目录，降级到缓存目录
-                
+            # 找到安卓内部的安全缓存目录 (在这个目录下才能执行二进制文件)
+            cache_dir = os.environ.get("TMPDIR", os.path.join(app_dir, "tmp"))
+            os.makedirs(cache_dir, exist_ok=True)
+            ffmpeg_path = os.path.join(cache_dir, "ffmpeg")
+
+            # 视频下载目录 (放在缓存目录避免安卓权限弹窗)
+            download_dir = cache_dir 
             out_template = os.path.join(download_dir, "tbw_31_final.%(ext)s")
             final_out = os.path.join(download_dir, "final_video.mp4")
 
-            # 2. 释放并赋权 FFmpeg 二进制文件
-            log("正在初始化 FFmpeg 环境...")
-            # 注意：在 Flet 中，assets 目录下的文件会被打包进去，可以通过相对路径读取
-            if not os.path.exists(ffmpeg_path):
-                assets_ffmpeg = "assets/ffmpeg"
-                if os.path.exists(assets_ffmpeg):
-                    shutil.copy(assets_ffmpeg, ffmpeg_path)
-                    # 赋予可执行权限 (chmod +x)
-                    os.chmod(ffmpeg_path, os.stat(ffmpeg_path).st_mode | stat.S_IEXEC)
-                else:
-                    log("错误：找不到 assets/ffmpeg 文件，请确保已打包！")
-                    return
+            # ================= 2. 释放 FFmpeg =================
+            log("-> 准备 FFmpeg 解密环境...")
+            if os.path.exists(assets_ffmpeg):
+                shutil.copy(assets_ffmpeg, ffmpeg_path)
+                # 满权限赋权：chmod 777
+                os.chmod(ffmpeg_path, 0o777) 
+            else:
+                log(f"❌ 严重错误：找不到打包的 FFmpeg")
+                return
 
-            # 3. 运行 yt-dlp
-            log("正在通过 yt-dlp 下载...")
+            # ================= 3. yt-dlp 下载 =================
+            log("-> 启动 yt-dlp 下载 (请耐心等待)...")
             ydl_opts = {
                 'allow_unplayable_formats': True,
                 'video_password': f"8045e66376cb4efdae49a6315846f1cb:{key_input.value}",
@@ -63,9 +63,11 @@ def main(page: ft.Page):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url_input.value])
 
-            log("下载完成，开始 FFmpeg 解密...")
+            log("✅ 下载完成！")
+            log("-> 启动 FFmpeg 进行解密和合并...")
 
-            # 4. 运行 FFmpeg 解密合并
+            # ================= 4. FFmpeg 解密 =================
+            # 自动寻找下载下来的分离的音视频文件
             video_in = os.path.join(download_dir, "tbw_31_final.ftbw31_hd_01_6000k_v.mp4")
             audio_in = os.path.join(download_dir, "tbw_31_final.ftbw31_hd_01_6000k_a.m4a")
 
@@ -82,25 +84,31 @@ def main(page: ft.Page):
             process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             
             if process.returncode == 0:
-                log(f"✅ 处理成功！文件保存在:\n{final_out}")
+                log(f"🎉 完美成功！\n\n为了绕过安卓14权限限制，视频已保存在App专属私有目录:\n{final_out}\n\n(你可以用 MT管理器 访问上述路径提取视频)")
             else:
                 log(f"❌ FFmpeg 报错:\n{process.stderr}")
 
         except Exception as ex:
-            log(f"发生异常: {str(ex)}")
+            log(f"❌ 发生异常: {str(ex)}")
         finally:
             btn_start.disabled = False
             page.update()
 
-    btn_start = ft.ElevatedButton("开始下载并解密", on_click=run_task)
+    btn_start = ft.ElevatedButton("开始下载并解密", on_click=run_task, bgcolor=ft.colors.BLUE_700, color=ft.colors.WHITE)
 
-    # 将 UI 添加到页面
     page.add(
-        url_input,
-        key_input,
-        btn_start,
-        ft.Divider(),
-        log_text
+        ft.Column([
+            url_input,
+            key_input,
+            btn_start,
+            ft.Divider(height=20, color=ft.colors.WHITE24),
+            ft.Container(
+                content=log_text,
+                padding=10,
+                bgcolor=ft.colors.BLACK45,
+                border_radius=8
+            )
+        ], spacing=15)
     )
 
 ft.app(target=main, assets_dir="assets")
