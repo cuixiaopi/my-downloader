@@ -35,13 +35,21 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 🌟 只安装必须的库，flet 由构建工具自动管理
-          pip install yt-dlp certifi
+          pip install flet yt-dlp certifi
+
+      - name: Download and Extract FFmpeg
+        run: |
+          mkdir -p assets
+          wget https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-full.tar.bz2
+          tar -xjf arm64-v8a-full.tar.bz2
+          mv ffmpeg assets/ffmpeg
+          chmod +x assets/ffmpeg
+          rm arm64-v8a-full.tar.bz2
 
       - name: Build Original APK
         run: |
-          # 🌟 关键：不要手动生成 requirements.txt，让 flet build 自动识别
-          yes | flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
+          # 🌟 使用 python -m 调用 flet，绝对不会找不到命令
+          yes | python -m flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
 
       - name: Magic Patch for Android 14
         run: |
