@@ -24,13 +24,11 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # 🌟 核心修复 1：提前安装官方的 Flutter 环境
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # 🌟 核心修复 2：全自动同意所有的安卓 SDK 协议 (狂按 y)
       - name: Accept Android Licenses
         run: yes | flutter doctor --android-licenses
 
@@ -49,9 +47,11 @@ jobs:
           rm arm64-v8a-full.tar.bz2
 
       - name: Build Original APK
-        # 现在 Flet 发现 Flutter 已经装好了，协议也同意了，就不会报错了
         run: |
-          flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
+          # 🌟 核心修复 3：强制创建一个只包含 yt-dlp 的 requirements.txt
+          # 这样就能完美避开安卓不支持的 watchdog 库！
+          echo "yt-dlp" > requirements.txt
+          yes | flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
 
       - name: Magic Patch for Android 14 (降级 Target SDK 并重签)
         run: |
