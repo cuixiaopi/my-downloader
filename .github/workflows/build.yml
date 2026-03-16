@@ -13,15 +13,14 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: "3.9"  # 使用 3.9 更稳定
           
       - name: Download FFmpeg
         run: |
           mkdir -p assets
-          wget -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
+          wget -q -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
           tar -xjf ffmpeg.tar.bz2 -C assets/
           chmod +x assets/ffmpeg
-          ls -la assets/
           
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -31,9 +30,9 @@ jobs:
           
       - name: Install Flet
         run: |
-          pip install flet
+          pip install flet==0.20.0  # 使用稳定版本
           
-      - name: Build APK (非交互式)
+      - name: Build APK
         run: |
           yes | flet build apk
           
