@@ -9,52 +9,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Download FFmpeg
+      
+      # 确保 assets 目录存在，并下载 FFmpeg 二进制
+      - name: Prepare FFmpeg (Android ARM64)
         run: |
           mkdir -p assets
-          curl -L https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2 -o ffmpeg.tar.bz2
-          tar -xjvf ffmpeg.tar.bz2 -C assets/
-          chmod +x assets/ffmpeg
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Install Flet
-        run: pip install flet
-
-      - name: Create Android manifest permissions
-        run: |
-          cat > android_manifest_extras.xml << EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <!-- Android 10+ 需要此权限访问外部存储 -->
-              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
-                  android:maxSdkVersion="28" />
-              <!-- Android 11+ 管理所有文件权限 -->
-              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-              <!-- 允许安装未知应用 -->
-              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-              <!-- 网络权限 -->
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-          </manifest>
-          EOF
-
+          # 下载适用于 Android ARM64 的 FFmpeg 二进制（从 Khang-NT 的仓库）
+          wget https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/v6.0/arm64-v8a-lite.tar.bz2
+          tar -xjf arm64-v8a-lite.tar.bz2
+          mv ffmpeg assets/
+          rm arm64-v8a-lite.tar.bz2
+      
+      # 构建 APK（Flet 会自动处理 assets 目录）
       - name: Build APK
-        run: |
-          flet build apk --yes --android-manifest-extra android_manifest_extras.xml
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: flet-dev/flet-build-action@v1
         with:
-          name: drm-downloader-android14
-          path: build/apk/*.apk
+          platform: android
+          release: false  # 开发版，方便调试
