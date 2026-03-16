@@ -1,30 +1,56 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:    # 允许手动触发
-  push:                 # 推送到main分支时也触发
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  build-android-apk:    # 作业名称
+  build:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       
+      - name: Debug Info
+        run: |
+          echo "======= 构建开始 ======="
+          echo "工作目录: $(pwd)"
+          echo "文件列表:"
+          ls -la
+          echo "Python版本:"
+          python --version
+          
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.9"
           
-      - name: Download FFmpeg
+      - name: Install Flet
         run: |
-          mkdir -p assets
-          wget -q -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
-          tar -xjf ffmpeg.tar.bz2 -C assets/
-          chmod +x assets/ffmpeg
+          pip install flet==0.19.0
+          
+      - name: Install Flutter SDK
+        run: |
+          echo "========== 安装 Flutter SDK =========="
+          
+          # 1. 下载 Flutter SDK
+          echo "下载 Flutter SDK..."
+          wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.19.5-stable.tar.xz
+          
+          # 2. 解压
+          echo "解压 Flutter..."
+          tar -xf flutter_linux_3.19.5-stable.tar.xz
+          
+          # 3. 添加到 PATH
+          echo "配置环境变量..."
+          echo "$GITHUB_WORKSPACE/flutter/bin" >> $GITHUB_PATH
+          
+          # 4. 检查安装
+          source ~/.bashrc
+          export PATH="$PATH:$GITHUB_WORKSPACE/flutter/bin"
+          
+          echo "检查 Flutter 版本:"
+          flutter --version || echo "Flutter 命令暂时不可用"
           
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -32,18 +58,92 @@ jobs:
           distribution: temurin
           java-version: 17
           
-      - name: Install Flet
+      - name: Download FFmpeg
         run: |
-          pip install flet==0.19.0
+          echo "下载 FFmpeg..."
+          mkdir -p assets
+          wget -q -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
+          tar -xjf ffmpeg.tar.bz2 -C assets/
+          chmod +x assets/ffmpeg
+          echo "FFmpeg 信息:"
+          ls -lh assets/ffmpeg
           
       - name: Build APK
         run: |
-          echo "开始构建APK..."
-          # 使用非交互模式构建
-          yes | flet build apk
+          echo "========== 开始构建 APK =========="
+          
+          # 设置 Flutter 到 PATH
+          export PATH="$PATH:$GITHUB_WORKSPACE/flutter/bin"
+          echo "当前 PATH: $PATH"
+          
+          # 检查 Flutter
+          echo "检查 Flutter 可用性:"
+          which flutter || echo "Flutter 不在 PATH"
+          flutter --version || echo "无法运行 flutter 命令"
+          
+          # 检查 Flet
+          echo "检查 Flet:"
+          flet --version || echo "无法运行 flet 命令"
+          
+          # 构建 APK（非交互式）
+          echo "运行构建命令..."
+          
+          # 方法1：使用 expect 自动回答
+          sudo apt-get update && sudo apt-get install -y expect
+          
+          cat > build.exp << 'EOF'
+#!/usr/bin/expect
+set timeout 300
+spawn flet build apk
+expect "Proceed*" { send "y\r" }
+expect "Accept*" { send "y\r" }
+expect eof
+EOF
+          
+          chmod +x build.exp
+          ./build.exp
+          
+          echo "构建命令执行完成"
+          
+      - name: Check Build Output
+        run: |
+          echo "========== 检查构建结果 =========="
+          
+          echo "查找 APK 文件:"
+          find . -name "*.apk" 2>/dev/null | head -5 || echo "未找到 APK"
+          
+          echo "检查 build 目录:"
+          if [ -d "build" ]; then
+            ls -la build/
+            if [ -d "build/apk" ]; then
+              echo "APK 目录:"
+              ls -la build/apk/
+              echo "APK 文件:"
+              for apk in build/apk/*.apk; do
+                echo "找到: $apk"
+                ls -lh "$apk"
+              done
+            fi
+          else
+            echo "build 目录不存在"
+          fi
           
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: drm-downloader-apk
-          path: build/apk/*.apk
+          name: drm-app
+          path: |
+            build/apk/*.apk
+            *.apk
+          retention-days: 7
+          
+      - name: Upload Debug Files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-files
+          path: |
+            main.py
+            assets/ffmpeg
+          retention-days: 3
