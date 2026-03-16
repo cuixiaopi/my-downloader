@@ -18,12 +18,21 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 新增：配置 Java 17 环境，确保 Flet 打包和重签名不会报错
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+
+      # 🌟 核心修复 1：提前安装官方的 Flutter 环境
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      # 🌟 核心修复 2：全自动同意所有的安卓 SDK 协议 (狂按 y)
+      - name: Accept Android Licenses
+        run: yes | flutter doctor --android-licenses
 
       - name: Install dependencies
         run: |
@@ -40,9 +49,9 @@ jobs:
           rm arm64-v8a-full.tar.bz2
 
       - name: Build Original APK
-        # ⚠️ 核心修复：使用 "yes |" 管道符，全自动回答 Flet 的 [y/n] 安装提示！
+        # 现在 Flet 发现 Flutter 已经装好了，协议也同意了，就不会报错了
         run: |
-          yes | flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
+          flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
 
       - name: Magic Patch for Android 14 (降级 Target SDK 并重签)
         run: |
@@ -55,7 +64,7 @@ jobs:
           # 1. 反编译
           apktool d original.apk -o decoded_apk
           
-          # 2. 修改 targetSdkVersion 绕过安卓 14 权限限制
+          # 2. 暴力修改 targetSdkVersion 绕过安卓 14 的权限限制
           sed -i "s/targetSdkVersion: .*/targetSdkVersion: '28'/g" decoded_apk/apktool.yml
           
           # 3. 重新打包
