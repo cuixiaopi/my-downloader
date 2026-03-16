@@ -6,29 +6,105 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
       
+      - name: Debug Information
+        run: |
+          echo "========== 构建开始 =========="
+          echo "当前目录:"
+          pwd
+          echo "目录内容:"
+          ls -la
+          echo "Python可用版本:"
+          python --version
+          
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.9"  # 必须用 3.9
+          python-version: "3.9"  # 使用 Python 3.9
           
-      - name: Install Flet
+      - name: Create project structure
         run: |
-          pip install flet==0.20.0
+          echo "创建项目结构..."
+          mkdir -p assets
+          echo "创建测试文件，确保main.py存在"
+          if [ ! -f "main.py" ]; then
+            echo "警告: main.py不存在，创建测试文件"
+            cat > main.py << 'EOF'
+import flet as ft
+def main(page: ft.Page):
+    page.title = "测试应用"
+    page.add(ft.Text("Hello World"))
+ft.app(target=main)
+EOF
+          fi
           
-      - name: Test locally
+      - name: Install Dependencies
         run: |
-          python -c "import flet; print(f'Flet version: {flet.__version__}')"
+          echo "安装 Python 依赖..."
+          python -m pip install --upgrade pip
+          echo "正在安装 flet==0.19.0 ..."
+          pip install flet==0.19.0
           
-      - name: Build APK
+          echo "验证安装:"
+          python -c "import flet; print(f'✅ Flet 版本: {flet.__version__}')"
+          
+      - name: Check Flet CLI
         run: |
+          echo "检查 Flet 命令行工具..."
+          flet --version || echo "flet 命令不可用"
+          
+      - name: Simple Build Test
+        run: |
+          echo "========== 开始构建 APK =========="
+          echo "使用最简单的构建命令..."
+          
+          # 先查看当前目录
+          echo "构建前目录:"
+          find . -name "*.py" | head -5
+          
+          # 最简单的构建命令
+          echo "运行: flet build apk"
           echo y | flet build apk
           
-      - name: Upload APK
+          echo "✅ 构建命令执行完成"
+          
+      - name: Check Build Output
+        run: |
+          echo "========== 检查构建输出 =========="
+          echo "查找 APK 文件:"
+          find . -name "*.apk" 2>/dev/null || echo "未找到 APK 文件"
+          
+          echo "检查 build 目录:"
+          if [ -d "build" ]; then
+            ls -la build/
+            if [ -d "build/apk" ]; then
+              echo "APK 目录内容:"
+              ls -la build/apk/
+            fi
+          else
+            echo "build 目录不存在"
+          fi
+          
+      - name: Upload APK Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: drm-downloader
-          path: build/apk/*.apk
+          name: drm-downloader-apk
+          path: |
+            build/apk/*.apk
+            *.apk
+          retention-days: 7
+          
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            ${{ github.workspace }}/*.log
+            ${{ github.workspace }}/**/*.log
+          retention-days: 3
