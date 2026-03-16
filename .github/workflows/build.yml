@@ -6,95 +6,29 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
       
-      - name: Debug Info
-        run: |
-          echo "当前目录:"
-          pwd && ls -la
-          echo "Python版本:"
-          python --version
-          
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.9"
+          python-version: "3.9"  # 必须用 3.9
           
-      - name: Create assets directory
+      - name: Install Flet
         run: |
-          mkdir -p assets
-          echo "✅ assets目录已创建"
+          pip install flet==0.20.0
           
-      - name: Download FFmpeg
+      - name: Test locally
         run: |
-          echo "正在下载FFmpeg..."
-          wget -q --show-progress -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
-          echo "解压FFmpeg..."
-          tar -xjf ffmpeg.tar.bz2 -C assets/
-          chmod +x assets/ffmpeg
-          echo "✅ FFmpeg信息:"
-          ls -lh assets/ffmpeg
-          file assets/ffmpeg
+          python -c "import flet; print(f'Flet version: {flet.__version__}')"
           
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-          
-      - name: Install Dependencies
+      - name: Build APK
         run: |
-          echo "安装Flet..."
-          pip install flet
-          echo "Flet版本:"
-          flet --version
-          
-      - name: Check Flet commands
-        run: |
-          echo "查看Flet支持的build参数:"
-          flet build apk --help || echo "无法获取帮助"
-          
-      - name: Simple Build APK
-        id: build
-        run: |
-          echo "使用简单构建命令..."
-          
-          # 先查看目录结构
-          echo "当前目录结构:"
-          find . -type f -name "*.py" | head -10
-          
-          # 使用最简单的构建命令
           echo y | flet build apk
           
-          echo "✅ 构建完成"
-          
-      - name: List APK files
-        if: success()
-        run: |
-          echo "查找APK文件:"
-          find . -name "*.apk" -type f 2>/dev/null || echo "未找到APK"
-          echo "检查build目录:"
-          ls -la build/ 2>/dev/null || echo "build目录不存在"
-          
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: drm-apk
-          path: |
-            build/apk/*.apk
-            *.apk
-          retention-days: 7
-          
-      - name: Upload source files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-code
-          path: |
-            main.py
-            assets/
-          retention-days: 3
+          name: drm-downloader
+          path: build/apk/*.apk
