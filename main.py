@@ -1,15 +1,15 @@
 import sys
 import os
 
-# 🌟 终极补丁：自动递归查找当前目录下的所有 site-packages 并加入路径
-def add_all_site_packages():
-    app_dir = os.path.dirname(os.path.abspath(__file__))
-    for root, dirs, files in os.walk(app_dir):
+# --- 终极路径劫持补丁 ---
+def add_all_paths():
+    base = os.path.dirname(os.path.abspath(__file__))
+    # 遍历当前目录下所有文件夹，只要包含 site-packages 就强行加入 sys.path
+    for root, dirs, files in os.walk(base):
         if "site-packages" in root:
             if root not in sys.path:
                 sys.path.append(root)
-
-add_all_site_packages()
+add_all_paths()
 
 import flet as ft
 import yt_dlp
@@ -36,23 +36,34 @@ def main(page: ft.Page):
             cache_dir = os.environ.get("TMPDIR", "/data/local/tmp")
             ffmpeg_path = os.path.join(cache_dir, "ffmpeg")
             
-            # 释放 FFmpeg
+            # 释放 FFmpeg 到缓存目录
             if not os.path.exists(ffmpeg_path):
                 shutil.copy(os.path.join(base_dir, "assets", "ffmpeg"), ffmpeg_path)
                 os.chmod(ffmpeg_path, 0o777)
             
-            # 下载
+            # 设置下载目录
             out_template = os.path.join(cache_dir, "tbw_31_final.%(ext)s")
-            ydl_opts = {'video_password': f"8045e66376cb4efdae49a6315846f1cb:{key_input.value}", 'outtmpl': out_template}
+            
+            # 下载
+            ydl_opts = {
+                'video_password': f"8045e66376cb4efdae49a6315846f1cb:{key_input.value}", 
+                'outtmpl': out_template,
+                'quiet': True
+            }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url_input.value])
             
             log("下载完成，正在解密...")
             
-            # 合并
-            cmd = [ffmpeg_path, '-y', '-decryption_key', key_input.value, '-i', os.path.join(cache_dir, "tbw_31_final.ftbw31_hd_01_6000k_v.mp4"), '-decryption_key', key_input.value, '-i', os.path.join(cache_dir, "tbw_31_final.ftbw31_hd_01_6000k_a.m4a"), '-c', 'copy', os.path.join(cache_dir, "final_video.mp4")]
-            subprocess.run(cmd)
-            log("✅ 成功！文件位于: " + cache_dir)
+            # 解密命令
+            video_in = os.path.join(cache_dir, "tbw_31_final.ftbw31_hd_01_6000k_v.mp4")
+            audio_in = os.path.join(cache_dir, "tbw_31_final.ftbw31_hd_01_6000k_a.m4a")
+            final_out = os.path.join(cache_dir, "final_video.mp4")
+            
+            cmd = [ffmpeg_path, '-y', '-decryption_key', key_input.value, '-i', video_in, '-decryption_key', key_input.value, '-i', audio_in, '-c', 'copy', final_out]
+            subprocess.run(cmd, check=True)
+            
+            log("✅ 成功！文件位于: " + final_out)
         except Exception as ex:
             log(f"❌ 出错: {str(ex)}")
         finally:
