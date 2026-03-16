@@ -48,32 +48,34 @@ jobs:
 
       - name: Build Original APK
         run: |
-          # 🌟 核心修复 3：强制创建一个只包含 yt-dlp 的 requirements.txt
-          # 这样就能完美避开安卓不支持的 watchdog 库！
           echo "yt-dlp" > requirements.txt
           yes | flet build apk --project "MPD Downloader" --org com.myname.mpddownloader
 
       - name: Magic Patch for Android 14 (降级 Target SDK 并重签)
         run: |
           sudo apt-get update
-          sudo apt-get install -y apktool apksigner zipalign
+          # 我们不再安装老旧的 apktool，只安装重签必备的工具
+          sudo apt-get install -y apksigner zipalign
           
-          # 找到打包出来的 APK
+          # 🌟核心修复：直接从官方下载最新版 v2.9.3 的 Apktool！
+          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O apktool.jar
+          
+          # 找到刚才成功打包的 APK
           mv build/apk/*.apk original.apk
           
-          # 1. 反编译
-          apktool d original.apk -o decoded_apk
+          # 1. 使用最新引擎反编译
+          java -jar apktool.jar d original.apk -o decoded_apk
           
-          # 2. 暴力修改 targetSdkVersion 绕过安卓 14 的权限限制
+          # 2. 暴力修改 targetSdkVersion 绕过安卓 14 的限制
           sed -i "s/targetSdkVersion: .*/targetSdkVersion: '28'/g" decoded_apk/apktool.yml
           
-          # 3. 重新打包
-          apktool b decoded_apk -o unsigned_patched.apk
+          # 3. 重新打包 (🌟强制启用 --use-aapt2 现代引擎，专治 Flutter 资源报错！)
+          java -jar apktool.jar b decoded_apk -o unsigned_patched.apk --use-aapt2
           
           # 4. 字节对齐
           zipalign -v -p 4 unsigned_patched.apk patched.apk
           
-          # 5. 自动生成签名并签名
+          # 5. 自动生成证书并签名
           keytool -genkeypair -v -keystore temp.keystore -alias temp -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=MPD,O=Downloader,C=CN"
           apksigner sign --ks temp.keystore --ks-pass pass:123456 patched.apk
 
