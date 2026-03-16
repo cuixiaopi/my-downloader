@@ -6,21 +6,45 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
       
+      - name: Debug Info
+        run: |
+          echo "当前目录:"
+          pwd && ls -la
+          echo "Python版本:"
+          python --version
+          
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.9"  # 使用 3.9 更稳定
+          python-version: "3.9"
+          
+      - name: Create requirements.txt
+        run: |
+          echo "flet" > requirements.txt
+          echo "requirements.txt 内容:"
+          cat requirements.txt
+          
+      - name: Create assets directory
+        run: |
+          mkdir -p assets
+          echo "assets目录已创建"
+          ls -la
           
       - name: Download FFmpeg
         run: |
-          mkdir -p assets
-          wget -q -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
+          echo "正在下载FFmpeg..."
+          wget -q --show-progress -O ffmpeg.tar.bz2 "https://github.com/Khang-NT/ffmpeg-binary-android/releases/download/2018-07-31/arm64-v8a-lite.tar.bz2"
+          echo "解压FFmpeg..."
           tar -xjf ffmpeg.tar.bz2 -C assets/
           chmod +x assets/ffmpeg
+          echo "FFmpeg信息:"
+          ls -lh assets/ffmpeg
+          file assets/ffmpeg
           
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -28,16 +52,61 @@ jobs:
           distribution: temurin
           java-version: 17
           
-      - name: Install Flet
+      - name: Install Dependencies
         run: |
-          pip install flet==0.20.0  # 使用稳定版本
+          pip install --upgrade pip
+          pip install flet
+          flet --version
           
       - name: Build APK
+        id: build
         run: |
-          yes | flet build apk
+          echo "开始构建APK..."
+          
+          # 使用非交互式构建
+          echo y | flet build apk \
+            --android-package-name com.drm.debug.downloader \
+            --android-app-name "DRM Debug Master" \
+            --android-version 1.0 \
+            --android-version-code 1 \
+            --android-permissions "android.permission.MANAGE_EXTERNAL_STORAGE" \
+            --android-permissions "android.permission.WRITE_EXTERNAL_STORAGE" \
+            --android-permissions "android.permission.READ_EXTERNAL_STORAGE" \
+            --android-permissions "android.permission.INTERNET" \
+            --android-permissions "android.permission.ACCESS_NETWORK_STATE" \
+            --verbose
+          
+          echo "构建完成"
+          echo "检查build目录:"
+          ls -la build/ || echo "build目录不存在"
+          ls -la build/apk/ 2>/dev/null || echo "apk目录不存在"
+          
+      - name: List APK files
+        if: success()
+        run: |
+          echo "查找APK文件:"
+          find . -name "*.apk" -type f 2>/dev/null | head -20
+          echo "build目录结构:"
+          find build -type f 2>/dev/null || echo "无build目录"
           
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: drm-downloader
-          path: build/apk/*.apk
+          name: drm-debug-apk
+          path: |
+            build/apk/*.apk
+            *.apk
+          retention-days: 7
+          
+      - name: Upload debug files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-files
+          path: |
+            assets/ffmpeg
+            main.py
+            requirements.txt
+            ffmpeg.tar.bz2
+          retention-days: 3
