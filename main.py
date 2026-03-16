@@ -1,133 +1,242 @@
 import flet as ft
 import os
+import shutil
 import subprocess
 import threading
 import traceback
-from flet import permission_request  # 导入权限请求模块
-
-def is_android():
-    return os.environ.get("FLET_PLATFORM") == "android"
-
-def get_ffmpeg_path():
-    """获取 FFmpeg 路径（Android 自动从 assets 复制）"""
-    if not is_android():
-        return "ffmpeg"  # 非 Android 直接用系统 ffmpeg（需提前安装）
-    
-    # Android 可写目录（应用私有目录）
-    ffmpeg_dir = os.path.join(os.environ.get("FLET_APP_DATA", ""), "ffmpeg")
-    os.makedirs(ffmpeg_dir, exist_ok=True)
-    ffmpeg_path = os.path.join(ffmpeg_dir, "ffmpeg")
-    
-    # 如果是首次运行，从 assets 复制 FFmpeg（build.yml 会自动打包 assets）
-    if not os.path.exists(ffmpeg_path):
-        # 读取 assets 中的 ffmpeg（Flet 会自动将 assets 目录打包到 APK）
-        with open(ffmpeg_path, "wb") as f:
-            # 注意：Flet 中读取 assets 需用 flet.resources 模块（或确保文件在打包时已包含）
-            # 这里简化为直接复制（实际需确保 build.yml 正确打包 assets）
-            pass  # 实际需实现复制逻辑，见步骤 2
-    
-    # 赋予执行权限（Android 需 chmod +x）
-    os.chmod(ffmpeg_path, 0o755)
-    return ffmpeg_path
-
-def start_download(e, page, mpd_link, key):
-    try:
-        # 检查并请求存储权限（Android 14 需 MANAGE_EXTERNAL_STORAGE）
-        def request_storage_permission():
-            if is_android():
-                # 显示权限请求弹窗
-                page.show_dialog(
-                    ft.AlertDialog(
-                        title=ft.Text("权限请求"),
-                        content=ft.Text("需要存储权限以保存下载的视频"),
-                        actions=[
-                            ft.TextButton("允许", on_click=lambda _: do_request()),
-                            ft.TextButton("取消", on_click=lambda _: page.close_dialog())
-                        ],
-                    )
-                )
-            
-            def do_request():
-                # 实际请求权限（Flet 会自动调用 Android 原生权限弹窗）
-                page.permissions.request(
-                    permission=permission_request.PermissionType.STORAGE,
-                    on_result=lambda result: on_permission_result(result, page, mpd_link, key)
-                )
-                page.close_dialog()
-        
-        request_storage_permission()
-        
-    except Exception as e:
-        page.controls.append(ft.Text(f"启动下载失败: {str(e)}", style="error"))
-        page.update()
-
-def on_permission_result(result, page, mpd_link, key):
-    if result == permission_request.PermissionResult.GRANTED:
-        page.controls.append(ft.Text("权限已授予，开始下载...", style="success"))
-        page.update()
-        
-        # 调用 FFmpeg 下载（示例命令，需根据实际 MPD/KEY 调整）
-        ffmpeg_path = get_ffmpeg_path()
-        output_path = os.path.join(os.environ.get("FLET_APP_DATA", ""), "downloaded_video.mp4")
-        
-        cmd = [
-            ffmpeg_path,
-            "-i", mpd_link,
-            "-c", "copy",
-            "-decryption_key", key,  # 替换为实际的 KEY 参数（需确认 FFmpeg 支持的 DRM 解密方式）
-            output_path
-        ]
-        
-        # 后台执行 FFmpeg（避免阻塞 UI）
-        def run_ffmpeg():
-            try:
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderrsubprocess.PIPE)=
-                stdout, stderr = process.communicate()
-                if process.returncode == 0:
-                    page.controls.append(ft.Text("下载成功！", style="success"))
-                else:
-                    page.controls.append(ft.Text(f"下载失败: {stderr.decode()}", style="error"))
-                page.update()
-            except Exception as e:
-                page.controls.append(ft.Text(f"执行 FFmpeg 失败: {str(e)}", style="error"))
-                page.update()
-        
-        threading.Thread(target=run_ffmpeg, daemon=True).start()
-        
-    else:
-        page.controls.append(ft.Text("未授予存储权限，无法下载。", style="error"))
-        page.update()
+import time
 
 def main(page: ft.Page):
     page.title = "DRM 下载大师"
-    page.vertical_alignment = ft.MainAxisAlignment.START
+    page.theme_mode = ft.ThemeMode.LIGHT
+    page.scroll = ft.ScrollMode.ADAPTIVE
     
-    # 输入组件
-    mpd_link = ft.TextField(label="MPD 链接", value="tbw31/tbw31_hd_03_6000k.mpd")
-    key = ft.TextField(label="32位 KEY", value="a7594b3ac7e5a4e6fab7f53796")
-    download_btn = ft.ElevatedButton("开始下载", on_click=lambda e: start_download(e, page, mpd_link.value, key.value))
+    # UI组件
+    url_input = ft.TextField(
+        label="MPD 链接", 
+        border_radius=10,
+        hint_text="例如: https://example.com/video.mpd"
+    )
     
-    # 日志区域
-    log_area = ft.Column(spacing=5, expand=True)
+    key_input = ft.TextField(
+        label="32位 KEY", 
+        border_radius=10,
+        hint_text="64个字符的解密密钥"
+    )
     
-    # 将日志输出重定向到 log_area
-    def add_log(text, style=None):
-        log_area.controls.append(ft.Text(text, style=style))
+    log_box = ft.TextField(
+        label="运行日志",
+        multiline=True,
+        read_only=True,
+        min_lines=15,
+        text_size=12
+    )
+    
+    pb = ft.ProgressBar(visible=False)
+    
+    def log(msg):
+        log_box.value += msg + "\n"
         page.update()
     
-    page.controls.extend([
-        mpd_link,
-        key,
-        download_btn,
-        ft.Text("运行日志:"),
-        log_area
-    ])
+    def check_android_permission():
+        """Android权限检查（简化版）"""
+        try:
+            # 尝试在Download目录创建测试文件
+            test_path = "/storage/emulated/0/Download/test_permission.txt"
+            
+            # 先创建目录（如果不存在）
+            os.makedirs(os.path.dirname(test_path), exist_ok=True)
+            
+            with open(test_path, "w") as f:
+                f.write("test")
+            
+            os.remove(test_path)
+            return True
+        except:
+            return False
     
-    # 初始化时检查权限
-    add_log("检测到 Android 设备", "info")
-    add_log("请确保已授予存储权限", "warning")
-    add_log("基本文件操作权限正常", "success")
-    add_log("初始化引擎...", "info")
+    def request_permission_dialog():
+        """显示权限请求提示"""
+        dlg = ft.AlertDialog(
+            title=ft.Text("需要存储权限"),
+            content=ft.Column([
+                ft.Text("请到系统设置中授予存储权限：", weight=ft.FontWeight.BOLD),
+                ft.Text("1. 打开手机 设置"),
+                ft.Text("2. 找到 'DRM 下载大师'"),
+                ft.Text("3. 进入 权限 或 应用信息"),
+                ft.Text("4. 选择 '文件和媒体' 权限"),
+                ft.Text("5. 选择 '允许管理所有文件'"),
+            ], tight=True),
+            actions=[
+                ft.TextButton("确定", on_click=lambda e: page.close(dlg))
+            ]
+        )
+        page.dialog = dlg
+        dlg.open = True
+    
+    def get_ffmpeg_executable():
+        """获取FFmpeg可执行文件路径"""
+        # 首先检查assets目录
+        assets_ffmpeg = os.path.join("assets", "ffmpeg")
+        if os.path.exists(assets_ffmpeg):
+            return assets_ffmpeg
+        
+        # 如果assets没有，尝试从APK内部复制
+        try:
+            # Android上，Flet会将assets复制到可访问的目录
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+            possible_paths = [
+                os.path.join(app_dir, "assets", "ffmpeg"),
+                os.path.join(os.environ.get("FLET_APP_DATA", ""), "ffmpeg"),
+                "ffmpeg"  # 系统PATH
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    return path
+        except:
+            pass
+        
+        return None
+    
+    def run(e):
+        # 检查权限
+        if not check_android_permission():
+            log("⚠️ 存储权限不足")
+            request_permission_dialog()
+            return
+        
+        btn.disabled = True
+        pb.visible = True
+        page.update()
+        
+        def download_task():
+            try:
+                log("🚀 开始下载流程...")
+                
+                # 1. 获取FFmpeg
+                ffmpeg_path = get_ffmpeg_executable()
+                if not ffmpeg_path:
+                    log("❌ 找不到FFmpeg，请重新安装应用")
+                    return
+                
+                log(f"✅ FFmpeg路径: {ffmpeg_path}")
+                
+                # 2. 检查文件权限
+                if not os.access(ffmpeg_path, os.X_OK):
+                    os.chmod(ffmpeg_path, 0o755)
+                    log("✅ 已设置FFmpeg执行权限")
+                
+                # 3. 验证输入
+                url = url_input.value.strip()
+                key = key_input.value.strip()
+                
+                if not url:
+                    log("❌ 请输入MPD链接")
+                    return
+                
+                if not key or len(key) != 64:
+                    log("❌ 密钥必须是64个字符（32字节）")
+                    return
+                
+                # 4. 设置输出路径
+                output_dir = "/storage/emulated/0/Download"
+                if not os.path.exists(output_dir):
+                    # 尝试其他路径
+                    output_dir = "/sdcard/Download"
+                
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir, exist_ok=True)
+                
+                timestamp = int(time.time())
+                output_file = os.path.join(output_dir, f"video_{timestamp}.mp4")
+                
+                log(f"📁 输出到: {output_file}")
+                
+                # 5. 执行FFmpeg命令
+                cmd = [
+                    ffmpeg_path,
+                    "-decryption_key", key,
+                    "-i", url,
+                    "-c", "copy",
+                    "-y", output_file
+                ]
+                
+                log("🎬 开始下载和解密...")
+                
+                # 执行命令
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                
+                # 读取进度
+                for line in process.stdout:
+                    if "time=" in line or "speed=" in line:
+                        # 提取进度信息
+                        import re
+                        time_match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
+                        if time_match:
+                            log(f"⏱️ 进度: {time_match.group(1)}")
+                
+                process.wait()
+                
+                if process.returncode == 0:
+                    if os.path.exists(output_file):
+                        size = os.path.getsize(output_file) / (1024 * 1024)
+                        log(f"✅ 下载完成！大小: {size:.2f} MB")
+                        log(f"📁 保存到: {output_file}")
+                    else:
+                        log("✅ 命令执行成功")
+                else:
+                    log(f"❌ 下载失败，错误码: {process.returncode}")
+                
+            except PermissionError:
+                log("❌ 权限被拒绝")
+                log("请在Android设置中授予'管理所有文件'权限")
+                request_permission_dialog()
+            except FileNotFoundError:
+                log("❌ FFmpeg未找到，构建可能有问题")
+            except Exception as ex:
+                log(f"💥 错误: {str(ex)}")
+                log(traceback.format_exc())
+            finally:
+                btn.disabled = False
+                pb.visible = False
+                page.update()
+        
+        # 在新线程中执行下载
+        threading.Thread(target=download_task, daemon=True).start()
+    
+    # 创建按钮
+    btn = ft.ElevatedButton("开始下载", on_click=run)
+    
+    # 添加帮助文本
+    help_text = ft.Text(
+        "注意：Android 14需要手动开启'管理所有文件'权限",
+        size=12,
+        color=ft.colors.ORANGE_700
+    )
+    
+    # 添加到页面
+    page.add(
+        ft.Column([
+            ft.Text("DRM 下载大师", size=24, weight=ft.FontWeight.BOLD),
+            ft.Divider(),
+            url_input,
+            key_input,
+            help_text,
+            btn,
+            pb,
+            log_box
+        ])
+    )
+    
+    # 初始日志
+    log("应用已启动")
+    log("点击'开始下载'按钮进行测试")
 
-if __name__ == "__main__":
-    ft.app(target=main)
+ft.app(target=main)
